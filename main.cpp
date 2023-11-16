@@ -81,7 +81,7 @@ int main()
 		}
 	}
 
-	int32_t count = 0, collision_count = 0;
+	int32_t count = 0, test_count = 0, collision_count = 0;
 
 	ecs_time_t t = {};
 	ecs_time_measure(&t);
@@ -114,6 +114,8 @@ int main()
 						(int)(b_circle[j].p.x / cell_size),
 						(int)(b_circle[j].p.y / cell_size)};
 
+					test_count++;
+
 					if (abs(a_cell.x - b_cell.x) <= 1 &&
 						abs(a_cell.y - b_cell.y) <= 1)
 					{
@@ -132,10 +134,11 @@ int main()
 	}
 
 	double frame_time = ecs_time_measure(&t);
-	printf("v2 frame_time = %f\n", frame_time);
-	printf("v2 fps = %f\n", 1.f / frame_time);
-	printf("v2 count = %i\n", count);
-	printf("v2 collision_count = %i\n", collision_count);
+	printf("frame_time = %f\n", frame_time);
+	printf("fps = %f\n", 1.f / frame_time);
+	printf("count = %i\n", count);
+	printf("test_count = %i\n", test_count);
+	printf("collision_count = %i\n", collision_count);
 
 	return 0;
 }
