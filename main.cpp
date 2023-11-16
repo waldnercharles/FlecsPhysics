@@ -59,7 +59,7 @@ bool circle_to_circle(Circle a, Circle b, v2 *out)
 	return false;
 }
 
-int main()
+void brute_force()
 {
 	flecs::world world;
 	flecs::query<Circle> q = world.query<Circle>();
@@ -139,6 +139,155 @@ int main()
 	printf("count = %i\n", count);
 	printf("test_count = %i\n", test_count);
 	printf("collision_count = %i\n", collision_count);
+}
 
+void aabb_grid()
+{
+	flecs::world world;
+	flecs::query<Circle> build_grid = world.query<Circle>();
+
+	ecs_entity_t GridCell = ecs_new_id(world);
+
+	auto q = world.query_builder<Circle>()
+				 .term<Circle>()
+				 .group_by(
+					 GridCell,
+					 [](flecs::world_t *world,
+						flecs::table_t *table,
+						flecs::id_t id,
+						void *ctx) {
+						 flecs::entity_t result = 0;
+						 ecs_id_t pair = 0;
+
+						 if (ecs_search(
+								 world,
+								 table,
+								 ecs_pair(id, EcsWildcard),
+								 &pair
+							 ) != -1)
+						 {
+							 result = ecs_pair_second(world, pair);
+						 }
+
+						 return result;
+					 }
+				 )
+				 .build();
+
+
+	const int num_entities = 5000;
+	const float unit_size = 12.f;
+
+	// Note: With this implementation, this needs to be at least the largest obj size
+	const float cell_size = 16.f;
+
+	int bounds = (int)ceil(sqrt(num_entities) / 2.f);
+	for (int x = -bounds; x < bounds; x++)
+	{
+		for (int y = -bounds; y < bounds; y++)
+		{
+			const v2 val = v2_mul_s({(float)x, (float)y}, unit_size * 0.8f);
+			world.entity().set<Circle>({val, unit_size});
+		}
+	}
+
+	float grid_size = 640;
+	float half_grid_size = grid_size / 2;
+	int grid_num_cells_per_row = (int)(grid_size / cell_size);
+	int grid_num_cells = grid_num_cells_per_row * grid_num_cells_per_row;
+
+	auto *cells = (ecs_entity_t *)calloc(grid_num_cells, sizeof(ecs_entity_t));
+
+	for (int i = 0; i < grid_num_cells; i++)
+	{
+		cells[i] = ecs_new_id(world);
+	}
+
+	int32_t count = 0, skipped = 0, collision_count = 0;
+
+	ecs_time_t t = {};
+	ecs_time_measure(&t);
+
+	v2 screen_center = {};
+	ecs_iter_t it = ecs_query_iter(world, build_grid);
+	while (ecs_query_next(&it))
+	{
+		ecs_entity_t *entity = it.entities;
+		Circle *circle = ecs_field(&it, Circle, 1);
+
+		for (int i = 0; i < it.count; i++)
+		{
+			const v2 relative_pos = v2_add(
+				v2_sub(circle[i].p, screen_center),
+				{half_grid_size, half_grid_size}
+			);
+
+			const int index =
+				(int)(((relative_pos.y * (float)grid_num_cells_per_row) +
+					   relative_pos.x) /
+					  cell_size);
+
+			if (index < 0 || index >= grid_num_cells)
+			{
+				count++;
+				skipped++;
+				continue;
+			}
+
+			ecs_add_pair(world, entity[i], GridCell, cells[index]);
+			count++;
+		}
+	}
+
+	it = ecs_query_iter(world, build_grid);
+	while (ecs_query_next(&it))
+	{
+		Circle *a_circle = ecs_field(&it, Circle, 1);
+
+		for (int i = 0; i < it.count; i++)
+		{
+			const v2 relative_pos = v2_add(
+				v2_sub(a_circle[i].p, screen_center),
+				{half_grid_size, half_grid_size}
+			);
+
+			const int index =
+				(int)(((relative_pos.y * (float)grid_num_cells_per_row) +
+					   relative_pos.x) /
+					  cell_size);
+
+			if (index < 0 || index >= grid_num_cells)
+			{
+				skipped++;
+				continue;
+			}
+
+			q.iter().set_group(cells[i]).each([&](Circle &b_circle) {
+				v2 n = {};
+				if (circle_to_circle(a_circle[i], b_circle, &n))
+				{
+					a_circle[i].p = v2_sub(a_circle[i].p, n);
+					b_circle.p = v2_add(b_circle.p, n);
+
+					collision_count++;
+				}
+			});
+		}
+	}
+
+	double frame_time = ecs_time_measure(&t);
+	printf("frame_time = %f\n", frame_time);
+	printf("fps = %f\n", 1.f / frame_time);
+	printf("count = %i\n", count);
+	printf("skipped = %i\n", skipped);
+
+	free(cells);
+}
+
+int main()
+{
+	brute_force();
+	printf("-----------------------------------------\n");
+	aabb_grid();
 	return 0;
 }
