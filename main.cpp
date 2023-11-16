@@ -1,46 +1,43 @@
-#include <cmath>
-#include <flecs.h>
+#include <chrono>
 #include <iostream>
+#include <vector>
 
-struct Cell
-{
-	int x, y;
-};
+#include "aabb_grid.h"
 
-struct v2
-{
-	float x, y;
-};
-
-v2 v2_add(v2 a, v2 b)
+inline v2<float> v2_add(v2<float> a, v2<float> b)
 {
 	return {a.x + b.x, a.y + b.y};
 }
 
-v2 v2_sub(v2 a, v2 b)
+inline v2<float> v2_sub(v2<float> a, v2<float> b)
 {
 	return {a.x - b.x, a.y - b.y};
 }
 
-float v2_dot(v2 a, v2 b)
+inline float v2_dot(v2<float> a, v2<float> b)
 {
 	return a.x * b.x + a.y * b.y;
 }
 
-v2 v2_mul_s(v2 a, float b)
+inline v2<float> v2_mul_s(v2<float> a, float b)
 {
 	a.x *= b;
 	a.y *= b;
 	return a;
 }
 
+inline v2<float> V2(float x, float y)
+{
+	return {x, y};
+}
+
 struct Circle
 {
-	v2 p;
+	v2<float> p;
 	float r;
 };
 
-bool circle_to_circle(Circle a, Circle b, v2 *out)
+bool circle_to_circle(Circle a, Circle b, v2<float> *out)
 {
 	v2 d = v2_sub(b.p, a.p);
 	float d2 = v2_dot(d, d);
@@ -49,7 +46,7 @@ bool circle_to_circle(Circle a, Circle b, v2 *out)
 	if (d2 < r * r)
 	{
 		float l = sqrtf(d2);
-		v2 n = l != 0 ? v2_mul_s(d, 1.f / l) : (v2) {0.f, 1.f};
+		v2 n = l != 0 ? v2_mul_s(d, 1.f / l) : V2(0.f, 1.f);
 		n = v2_mul_s(n, r - l);
 		*out = n;
 
@@ -59,86 +56,146 @@ bool circle_to_circle(Circle a, Circle b, v2 *out)
 	return false;
 }
 
-int main()
+struct GridCell
 {
-	flecs::world world;
-	flecs::query<Circle> q = world.query<Circle>();
+	int x, y;
 
-	const float unit_size = 12.f;
+	inline GridCell operator-(GridCell const &other) const
+	{
+		return {x - other.x, y - other.y};
+	}
+};
 
-	// Note: With this implementation, this needs to be at least the largest obj size
-	const float cell_size = 16.f;
+inline GridCell abs(GridCell grid_cell)
+{
+	return {abs(grid_cell.x), abs(grid_cell.y)};
+}
 
-	const int num_entities = 5000;
-	int bounds = (int)ceil(sqrt(num_entities) / 2.f);
+GridCell get_cell(Circle c)
+{
+	const int cell_size = 16;
+	return {(int)(c.p.x / cell_size), (int)(c.p.y / cell_size)};
+}
+
+void regular_c_test()
+{
+	std::vector<Circle> entities;
+	const float unit_size = 16.f;
+
+	const int min_num_entities = 5000;
+	int bounds = (int)ceil(sqrt(min_num_entities) / 2.f);
 
 	for (int x = -bounds; x < bounds; x++)
 	{
 		for (int y = -bounds; y < bounds; y++)
 		{
-			const v2 val = v2_mul_s({(float)x, (float)y}, unit_size * 0.8f);
-			world.entity().set<Circle>({val, unit_size});
+			const v2 p = v2_mul_s({(float)x, (float)y}, unit_size);
+			Circle c = {p, unit_size};
+			entities.emplace_back(c);
 		}
 	}
 
-	int32_t count = 0, test_count = 0, collision_count = 0;
+	v2 n = {};
 
-	ecs_time_t t = {};
-	ecs_time_measure(&t);
+	auto t1 = std::chrono::high_resolution_clock::now();
+	int collision_count = 0;
 
-
-	ecs_iter_t it = ecs_query_iter(world, q);
-	while (ecs_query_next(&it))
+	for (int i = 0; i < entities.size(); i++)
 	{
-		Circle *a_circle = ecs_field(&it, Circle, 1);
-
-		for (int i = 0; i < it.count; i++)
+		auto &a = entities[i];
+		auto a_cell = get_cell(a);
+		for (int j = i + 1; j < entities.size(); j++)
 		{
-			Cell a_cell = {
-				(int)(a_circle[i].p.x / cell_size),
-				(int)(a_circle[i].p.y / cell_size)};
-
-			// Increment count before our inner loop so that we skip a == a check
-			count++;
-
-			ecs_iter_t nested_iter = ecs_query_iter(world, q);
-			ecs_iter_t pit = ecs_page_iter(&nested_iter, count, 0);
-
-			while (ecs_page_next(&pit))
+			auto &b = entities[j];
+			auto b_cell = get_cell(b);
+			auto relative_pos = abs(a_cell - b_cell);
+			if (relative_pos.x <= 1 && relative_pos.y <= 1)
 			{
-				Circle *b_circle = ecs_field(&pit, Circle, 1);
-
-				for (int j = 0; j < pit.count; j++)
+				if (circle_to_circle(a, b, &n))
 				{
-					Cell b_cell = {
-						(int)(b_circle[j].p.x / cell_size),
-						(int)(b_circle[j].p.y / cell_size)};
+					a.p = v2_sub(a.p, n);
+					b.p = v2_add(b.p, n);
 
-					test_count++;
-
-					if (abs(a_cell.x - b_cell.x) <= 1 &&
-						abs(a_cell.y - b_cell.y) <= 1)
-					{
-						v2 n = {};
-						if (circle_to_circle(a_circle[i], b_circle[j], &n))
-						{
-							a_circle[i].p = v2_sub(a_circle[i].p, n);
-							b_circle[j].p = v2_add(b_circle[j].p, n);
-
-							collision_count++;
-						}
-					}
+					collision_count++;
 				}
 			}
 		}
 	}
 
-	double frame_time = ecs_time_measure(&t);
-	printf("frame_time = %f\n", frame_time);
-	printf("fps = %f\n", 1.f / frame_time);
-	printf("count = %i\n", count);
-	printf("test_count = %i\n", test_count);
-	printf("collision_count = %i\n", collision_count);
+	auto t2 = std::chrono::high_resolution_clock::now();
+	double frame_time = std::chrono::duration<double>(t2 - t1).count();
+	std::cout << "frame_time = " << frame_time << std::endl;
+	std::cout << "fps = " << 1.f / frame_time << std::endl;
+	std::cout << "size = " << entities.size() << std::endl;
+	std::cout << "collisions = " << collision_count << std::endl;
+}
 
+void aabb_grid_test()
+{
+	std::vector<Circle> entities;
+	const float unit_size = 16.f;
+
+	const int min_num_entities = 5000;
+	int bounds = (int)ceil(sqrt(min_num_entities) / 2.f);
+
+	for (int x = -bounds; x < bounds; x++)
+	{
+		for (int y = -bounds; y < bounds; y++)
+		{
+			const v2 p = v2_mul_s({(float)x, (float)y}, 16);
+			Circle c = {p, unit_size};
+			entities.emplace_back(c);
+		}
+	}
+
+	v2 n = {};
+
+	AabbGrid<Circle> grid;
+
+	auto t1 = std::chrono::high_resolution_clock::now();
+	int collision_count = 0;
+
+	grid.clear();
+
+	for (auto &a : entities)
+	{
+		Aabb aabb = {a.p - V2(a.r, a.r), a.p + V2(a.r, a.r)};
+		grid.insert(aabb, &a);
+	}
+
+	for (auto &e : entities)
+	{
+		Aabb aabb = {e.p - V2(e.r, e.r), e.p + V2(e.r, e.r)};
+		grid.query(
+			aabb,
+			[&](Circle *a, Circle *b) {
+				v2 n = {};
+				if (circle_to_circle(*a, *b, &n))
+				{
+					a->p = v2_sub(a->p, n);
+					b->p = v2_add(b->p, n);
+
+					collision_count++;
+				}
+
+				return true;
+			},
+			&e
+		);
+	}
+
+	auto t2 = std::chrono::high_resolution_clock::now();
+	double frame_time = std::chrono::duration<double>(t2 - t1).count();
+	std::cout << "frame_time = " << frame_time << std::endl;
+	std::cout << "fps = " << 1.f / frame_time << std::endl;
+	std::cout << "size = " << entities.size() << std::endl;
+	std::cout << "collisions = " << collision_count << std::endl;
+}
+
+int main()
+{
+	regular_c_test();
+	std::cout << std::endl;
+	aabb_grid_test();
 	return 0;
 }

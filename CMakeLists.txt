@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)
 
-add_compile_options(/MT /O2 /GR- /EHa- /Oi /nologo -flto)
+#add_compile_options(/MT /O2 /GR- /EHa- /Oi /nologo /GL)
 
 add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0 FLECS_NDEBUG NDEBUG)
 
@@ -22,5 +22,6 @@ fetchcontent_declare(
 )
 fetchcontent_makeavailable(flecs)
 
-add_executable(FlecsPhysics main.cpp)
+add_executable(FlecsPhysics main.cpp
+               aabb_grid.h)
 target_link_libraries(FlecsPhysics flecs_static)
