@@ -64,19 +64,19 @@ int main()
 	flecs::world world;
 	flecs::query<Circle> q = world.query<Circle>();
 
-	const float unit_size = 8.f;
+	const float unit_size = 12.f;
 
 	// Note: With this implementation, this needs to be at least the largest obj size
 	const float cell_size = 16.f;
 
-	const int num_entities = 3000;
+	const int num_entities = 5000;
 	int bounds = (int)ceil(sqrt(num_entities) / 2.f);
 
 	for (int x = -bounds; x < bounds; x++)
 	{
 		for (int y = -bounds; y < bounds; y++)
 		{
-			const v2 val = v2_mul_s({(float)x, (float)y}, cell_size);
+			const v2 val = v2_mul_s({(float)x, (float)y}, unit_size * 0.8f);
 			world.entity().set<Circle>({val, unit_size});
 		}
 	}
